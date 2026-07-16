@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Harmonia — Gestão de Harmonização Facial</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap');
@@ -1104,6 +1107,15 @@ function setStatus(id,status){
 function deleteUser(id){
   if(!confirm('Excluir este profissional? O acesso será removido.'))return;
   saveUsers(getUsers().filter(u=>u.id!==id));renderAdminPanel();
+}
+
+/* ── Controle de versão: limpa sessões antigas ── */
+const APP_VERSION='2.1';
+if(localStorage.getItem('hf_version')!==APP_VERSION){
+  /* Nova versão detectada — remove sessões para evitar estado corrompido */
+  sessionStorage.removeItem('hf_admin');
+  sessionStorage.removeItem('hf_session');
+  localStorage.setItem('hf_version',APP_VERSION);
 }
 
 /* ── Limpeza de sessão corrompida ao carregar ── */
