@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // O documento admins/{uid} nunca é escrito pelo app — só via Firebase
+    // Console, como passo manual de bootstrap do administrador.
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /admins/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+
+    match /users/{userId} {
+      allow read:   if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId)
+                    && request.resource.data.status == 'pendente';
+      allow update: if isAdmin()
+                    || (isOwner(userId)
+                        && request.resource.data.status == resource.data.status);
+      allow delete: if isAdmin();
+
+      match /patients/{doc}     { allow read, write: if isOwner(userId); }
+      match /procedures/{doc}   { allow read, write: if isOwner(userId); }
+      match /expenses/{doc}     { allow read, write: if isOwner(userId); }
+      match /appointments/{doc} { allow read, write: if isOwner(userId); }
+    }
+  }
+}

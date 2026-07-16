@@ -229,8 +229,6 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 .pending-box .pi{font-size:48px;margin-bottom:16px}
 .pending-box h2{font-family:'DM Serif Display',serif;font-size:22px;color:var(--gold);margin-bottom:8px}
 .pending-box p{font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:20px}
-/* Modal admin login */
-#modal-admin-login .modal{max-width:360px}
 </style>
 </head>
 <body>
@@ -315,23 +313,6 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
   </div>
 </div>
 
-<!-- Modal: Login Admin -->
-<div class="modal-bg" id="modal-admin-login" style="display:none">
-  <div class="modal" style="max-width:360px">
-    <h3>Acesso Administrativo</h3>
-    <div class="modal-sub">Digite a senha master do sistema</div>
-    <div class="login-form" style="margin-top:4px">
-      <label>Senha master</label>
-      <input id="adm-pass" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doAdminLogin()">
-    </div>
-    <div class="login-error" id="adm-err" style="margin-top:8px"></div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeModal('modal-admin-login')">Cancelar</button>
-      <button class="btn btn-primary" onclick="doAdminLogin()">Entrar como Admin</button>
-    </div>
-  </div>
-</div>
-
 <!-- ══════════════ TELA DE LOGIN ══════════════ -->
 <div id="login-screen">
   <div class="login-box">
@@ -367,7 +348,6 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
       <div class="login-error" id="rg-err"></div>
       <button class="login-btn" onclick="doRegister()">Criar conta</button>
     </div>
-    <div class="admin-link" onclick="openAdminLogin()" style="display:none" id="admin-secret-link">🔐 Acesso administrativo</div>
   </div>
 </div>
 
@@ -923,8 +903,10 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, updateDoc, deleteDoc, query, where, onSnapshot }
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, setPersistence, browserSessionPersistence, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 /* ═══════════════ FIREBASE ═══════════════ */
 const firebaseConfig = {
@@ -935,8 +917,13 @@ const firebaseConfig = {
   messagingSenderId: "537151155306",
   appId: "1:537151155306:web:c7a6c8241425bbf6352e13"
 };
-const app = initializeApp(firebaseConfig);
-const db  = getFirestore(app);
+const app  = initializeApp(firebaseConfig);
+const db   = getFirestore(app);
+const auth = getAuth(app);
+setPersistence(auth, browserSessionPersistence);
+
+/* E-mail interno fixo usado para autenticar o acesso administrativo via Firebase Auth. */
+const ADMIN_EMAIL = 'admin@harmonia.internal';
 
 /* ═══════════════ CONSTANTES ═══════════════ */
 const REGION_NAMES={1:'Frontal',2:'Temporal',3:'Glabelar',4:'Supercílio',5:'Pálpebra superior',6:'Pálpebra inferior',7:'Nasociliar',8:'Sulco nasojugal',9:'Sulco palpebral lateral',10:'Nasal',11:'Malar',12:'Zigomática',13:'Fossa canina',14:'Sulco nasolabial',15:'Lábio superior',16:'Lábio inferior',17:'Bochecha',18:'Pré-auricular',19:'Sulco labiomentoniano',20:'Mentual',21:'Mandibular posterior',22:'Mandibular anterior'};
@@ -946,19 +933,20 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 function fmtBRL(v){return'R$ '+(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtDate(d){if(!d)return'—';const[y,m,day]=d.split('-');return`${day}/${m}/${y}`;}
 function today(){return new Date().toISOString().slice(0,10);}
-function hashPass(p){let h=0;for(let i=0;i<p.length;i++){h=((h<<5)-h)+p.charCodeAt(i);h|=0;}return h.toString(36);}
 function showLoading(msg='Carregando...'){document.getElementById('global-loading').style.display='flex';document.getElementById('global-loading-msg').textContent=msg;}
 function hideLoading(){document.getElementById('global-loading').style.display='none';}
+function authErrorMsg(e){
+  const code=e?.code||'';
+  if(code==='auth/invalid-credential'||code==='auth/wrong-password'||code==='auth/user-not-found')return'E-mail ou senha incorretos.';
+  if(code==='auth/email-already-in-use')return'Este e-mail já está cadastrado.';
+  if(code==='auth/invalid-email')return'E-mail inválido.';
+  if(code==='auth/weak-password')return'A senha deve ter pelo menos 6 caracteres.';
+  if(code==='auth/too-many-requests')return'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+  return'Ocorreu um erro. Tente novamente.';
+}
 
 /* ═══════════════ FIRESTORE HELPERS ═══════════════ */
-/* CONFIG (senha admin, etc.) */
-async function getCfg(k){
-  const d=await getDoc(doc(db,'config',k));
-  return d.exists()?d.data().value:null;
-}
-async function setCfg(k,v){await setDoc(doc(db,'config',k),{value:v});}
-
-/* USUÁRIOS */
+/* USUÁRIOS (perfil no Firestore; credenciais ficam no Firebase Auth) */
 async function getUsers(){
   const snap=await getDocs(collection(db,'users'));
   return snap.docs.map(d=>({id:d.id,...d.data()}));
@@ -968,11 +956,6 @@ async function saveUser(u){
   await setDoc(doc(db,'users',id),data);
 }
 async function deleteUserDoc(id){await deleteDoc(doc(db,'users',id));}
-async function findUserByEmail(email){
-  const snap=await getDocs(query(collection(db,'users'),where('email','==',email)));
-  if(snap.empty)return null;
-  return{id:snap.docs[0].id,...snap.docs[0].data()};
-}
 
 /* DADOS POR PROFISSIONAL */
 function col(name){return collection(db,`users/${currentUser.id}/${name}`);}
@@ -989,8 +972,8 @@ async function deleteDocument(name,id){
 }
 
 /* ═══════════════ ESTADO ═══════════════ */
-const DEFAULT_ADMIN_HASH=hashPass('admin123');
 let currentUser=null;
+let suppressAuthListener=false;
 let patients=[],procedures=[],expenses=[],appointments=[];
 
 async function loadData(){
@@ -1029,30 +1012,18 @@ async function doLogin(){
   const raw =document.getElementById('li-email').value.trim();
   const pass=document.getElementById('li-pass').value;
   const err =document.getElementById('li-err');
+  const isAdminAttempt=raw.toLowerCase()==='admin';
   err.textContent='';
   if(!raw||!pass){err.textContent='Preencha usuário/e-mail e senha.';return;}
-
-  /* Admin */
-  if(raw.toLowerCase()==='admin'){
-    showLoading('Verificando...');
-    const adminHash=await getCfg('admin_pass')||DEFAULT_ADMIN_HASH;
-    hideLoading();
-    if(hashPass(pass)!==adminHash){err.textContent='Senha de administrador incorreta.';return;}
-    sessionStorage.removeItem('hf_session');
-    sessionStorage.setItem('hf_admin','1');
-    openAdminPanel();
-    return;
-  }
-
-  /* Profissional */
+  const email=isAdminAttempt?ADMIN_EMAIL:raw.toLowerCase();
   showLoading('Verificando...');
-  const user=await findUserByEmail(raw.toLowerCase());
-  hideLoading();
-  if(!user||user.pass!==hashPass(pass)){err.textContent='E-mail ou senha incorretos.';return;}
-  const st=user.status||'pendente';
-  if(st==='bloqueado'){hideAllScreens();document.getElementById('blocked-screen').style.display='flex';return;}
-  if(st==='pendente') {hideAllScreens();document.getElementById('pending-screen').style.display='flex';return;}
-  await loginSuccess(user);
+  try{
+    await signInWithEmailAndPassword(auth,email,pass);
+    /* onAuthStateChanged cuida do roteamento de tela a partir daqui */
+  }catch(e){
+    hideLoading();
+    err.textContent=isAdminAttempt?'Senha de administrador incorreta.':authErrorMsg(e);
+  }
 }
 window.doLogin=doLogin;
 
@@ -1065,24 +1036,29 @@ async function doRegister(){
   const err  =document.getElementById('rg-err');
   err.textContent='';
   if(!name||!email||!pass){err.textContent='Preencha todos os campos obrigatórios.';return;}
-  if(email==='admin'){err.textContent='Este usuário é reservado.';return;}
+  if(email==='admin'||email===ADMIN_EMAIL){err.textContent='Este usuário é reservado.';return;}
   if(pass.length<6){err.textContent='A senha deve ter pelo menos 6 caracteres.';return;}
   if(pass!==pass2){err.textContent='As senhas não coincidem.';return;}
   showLoading('Criando conta...');
-  const existing=await findUserByEmail(email);
-  if(existing){hideLoading();err.textContent='Este e-mail já está cadastrado.';return;}
-  const newUser={id:uid(),name,role:role||'Profissional',email,pass:hashPass(pass),status:'pendente',createdAt:today()};
-  await saveUser(newUser);
-  hideLoading();
-  hideAllScreens();
-  document.getElementById('pending-screen').style.display='flex';
+  suppressAuthListener=true;
+  try{
+    const cred=await createUserWithEmailAndPassword(auth,email,pass);
+    const newUser={name,role:role||'Profissional',email,status:'pendente',createdAt:today()};
+    await setDoc(doc(db,'users',cred.user.uid),newUser);
+    hideLoading();
+    hideAllScreens();
+    document.getElementById('pending-screen').style.display='flex';
+  }catch(e){
+    hideLoading();
+    err.textContent=authErrorMsg(e);
+  }finally{
+    suppressAuthListener=false;
+  }
 }
 window.doRegister=doRegister;
 
 async function loginSuccess(user){
   currentUser=user;
-  sessionStorage.removeItem('hf_admin');
-  sessionStorage.setItem('hf_session',JSON.stringify({id:user.id}));
   document.getElementById('hdr-avatar').textContent=user.name.charAt(0).toUpperCase();
   document.getElementById('hdr-name').textContent=user.name+(user.role?` · ${user.role}`:'');
   await loadData();
@@ -1090,15 +1066,12 @@ async function loginSuccess(user){
   renderDash();renderPatients();renderCalendar();
 }
 
-function doLogout(){
+async function doLogout(){
   currentUser=null;
-  sessionStorage.removeItem('hf_session');
-  sessionStorage.removeItem('hf_admin');
-  hideAllScreens();
-  document.getElementById('login-screen').style.display='flex';
   document.getElementById('li-email').value='';
   document.getElementById('li-pass').value='';
   document.getElementById('li-err').textContent='';
+  await signOut(auth);
 }
 window.doLogout=doLogout;
 
@@ -1108,10 +1081,8 @@ async function openAdminPanel(){
   document.getElementById('admin-screen').style.display='flex';
   await renderAdminPanel();
 }
-function adminLogout(){
-  sessionStorage.removeItem('hf_admin');
-  hideAllScreens();
-  document.getElementById('login-screen').style.display='flex';
+async function adminLogout(){
+  await signOut(auth);
 }
 window.adminLogout=adminLogout;
 
@@ -1130,17 +1101,20 @@ async function doChangeAdminPass(){
   const conf=document.getElementById('cap-confirm').value;
   const err =document.getElementById('cap-err');
   err.textContent='';
-  showLoading('Verificando...');
-  const adminHash=await getCfg('admin_pass')||DEFAULT_ADMIN_HASH;
-  hideLoading();
-  if(hashPass(cur)!==adminHash){err.textContent='Senha atual incorreta.';return;}
   if(nw.length<6){err.textContent='A nova senha deve ter pelo menos 6 caracteres.';return;}
   if(nw!==conf){err.textContent='As senhas não coincidem.';return;}
   showLoading('Salvando...');
-  await setCfg('admin_pass',hashPass(nw));
-  hideLoading();
-  closeModal('modal-change-admin-pass');
-  alert('Senha alterada com sucesso!');
+  try{
+    const credential=EmailAuthProvider.credential(ADMIN_EMAIL,cur);
+    await reauthenticateWithCredential(auth.currentUser,credential);
+    await updatePassword(auth.currentUser,nw);
+    hideLoading();
+    closeModal('modal-change-admin-pass');
+    alert('Senha alterada com sucesso!');
+  }catch(e){
+    hideLoading();
+    err.textContent=e?.code==='auth/invalid-credential'||e?.code==='auth/wrong-password'?'Senha atual incorreta.':authErrorMsg(e);
+  }
 }
 window.doChangeAdminPass=doChangeAdminPass;
 
@@ -1653,28 +1627,34 @@ function formatDateBR(str){if(!str)return'';const[y,m,d]=str.split('-');return`$
 window.maskPhone=maskPhone;window.maskCPF=maskCPF;window.maskDate=maskDate;
 
 /* ═══════════════ SESSÃO ═══════════════ */
-(async function checkSession(){
-  if(sessionStorage.getItem('hf_admin')==='1'){
+/* Fonte única de verdade para login/logout/restauração de sessão: o próprio Firebase Auth. */
+onAuthStateChanged(auth, async (user)=>{
+  if(suppressAuthListener)return;
+  if(!user){
     hideAllScreens();
-    document.getElementById('admin-screen').style.display='flex';
-    await renderAdminPanel();
+    document.getElementById('login-screen').style.display='flex';
     return;
   }
-  const sess=sessionStorage.getItem('hf_session');
-  if(sess){
-    try{
-      const {id}=JSON.parse(sess);
-      showLoading('Restaurando sessão...');
-      const snap=await getDoc(doc(db,'users',id));
+  showLoading('Restaurando sessão...');
+  try{
+    if(user.email===ADMIN_EMAIL){
+      const adminDoc=await getDoc(doc(db,'admins',user.uid));
       hideLoading();
-      if(!snap.exists()){doLogout();return;}
-      const fresh={id:snap.id,...snap.data()};
-      if(fresh.status==='bloqueado'){hideAllScreens();document.getElementById('blocked-screen').style.display='flex';return;}
-      if(fresh.status==='pendente') {hideAllScreens();document.getElementById('pending-screen').style.display='flex';return;}
-      await loginSuccess(fresh);
-    }catch(e){hideLoading();sessionStorage.removeItem('hf_session');}
+      if(!adminDoc.exists()){await signOut(auth);return;}
+      await openAdminPanel();
+      return;
+    }
+    const snap=await getDoc(doc(db,'users',user.uid));
+    hideLoading();
+    if(!snap.exists()){await signOut(auth);return;}
+    const fresh={id:user.uid,...snap.data()};
+    if(fresh.status==='bloqueado'){hideAllScreens();document.getElementById('blocked-screen').style.display='flex';return;}
+    if(fresh.status!=='aprovado') {hideAllScreens();document.getElementById('pending-screen').style.display='flex';return;}
+    await loginSuccess(fresh);
+  }catch(e){
+    hideLoading();
   }
-})();
+});
 </script>
 
 <!-- Loading global -->
