@@ -979,9 +979,11 @@ function doLogin(){
   /* ── Login admin ── */
   if(raw.toLowerCase()==='admin'){
     if(hashPass(pass)!==getAdminHash()){err.textContent='Senha de administrador incorreta.';return;}
+    /* Limpa sessão de profissional */
+    sessionStorage.removeItem('hf_session');
     sessionStorage.setItem('hf_admin','1');
     openAdminPanel();
-    /* Força troca de senha padrão */
+    /* Força troca de senha padrão apenas no login manual */
     if(getAdminHash()===DEFAULT_ADMIN_HASH){
       setTimeout(()=>{
         alert('Bem-vindo! Você está usando a senha padrão. Por segurança, defina uma nova senha agora.');
@@ -1024,6 +1026,8 @@ function doRegister(){
 
 function loginSuccess(user){
   currentUser=user;
+  /* Garante que sessão de admin não persiste */
+  sessionStorage.removeItem('hf_admin');
   sessionStorage.setItem('hf_session',JSON.stringify(user));
   document.getElementById('hdr-avatar').textContent=user.name.charAt(0).toUpperCase();
   document.getElementById('hdr-name').textContent=user.name+(user.role?` · ${user.role}`:'');
@@ -1110,7 +1114,13 @@ function deleteUser(id){
 
 /* ── Sessão ── */
 (function checkSession(){
-  if(sessionStorage.getItem('hf_admin')==='1'){openAdminPanel();return;}
+  if(sessionStorage.getItem('hf_admin')==='1'){
+    /* Restaura sessão admin sem mostrar alerta de senha */
+    hideAllScreens();
+    document.getElementById('admin-screen').style.display='flex';
+    renderAdminPanel();
+    return;
+  }
   const sess=sessionStorage.getItem('hf_session');
   if(sess){
     try{
