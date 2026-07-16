@@ -295,7 +295,7 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 </div>
 
 <!-- Modal: Trocar senha admin -->
-<div class="modal-bg" id="modal-change-admin-pass">
+<div class="modal-bg" id="modal-change-admin-pass" style="display:none;z-index:300">
   <div class="modal" style="max-width:380px">
     <h3>Alterar senha do Admin</h3>
     <div class="modal-sub">Defina uma nova senha para o acesso administrativo</div>
@@ -316,7 +316,7 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 </div>
 
 <!-- Modal: Login Admin -->
-<div class="modal-bg" id="modal-admin-login">
+<div class="modal-bg" id="modal-admin-login" style="display:none">
   <div class="modal" style="max-width:360px">
     <h3>Acesso Administrativo</h3>
     <div class="modal-sub">Digite a senha master do sistema</div>
@@ -961,6 +961,11 @@ function save(){
 function hideAllScreens(){
   ['login-screen','admin-screen','pending-screen','blocked-screen']
     .forEach(id=>document.getElementById(id).style.display='none');
+  /* Fecha todos os modais abertos */
+  document.querySelectorAll('.modal-bg').forEach(m=>{
+    m.classList.remove('open');
+    m.style.display='none';
+  });
 }
 
 function switchTab(tab){
@@ -1053,11 +1058,11 @@ function adminLogout(){
   document.getElementById('login-screen').style.display='flex';
 }
 function openChangeAdminPass(){
-  /* Só pode ser chamado durante sessão admin ativa */
-  if(sessionStorage.getItem('hf_admin')!=='1')return;
   ['cap-current','cap-new','cap-confirm'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('cap-err').textContent='';
-  openModal('modal-change-admin-pass');
+  const el=document.getElementById('modal-change-admin-pass');
+  el.style.display='flex';
+  el.classList.add('open');
   setTimeout(()=>document.getElementById('cap-current').focus(),80);
 }
 function doChangeAdminPass(){
@@ -1110,7 +1115,7 @@ function deleteUser(id){
 }
 
 /* ── Controle de versão: limpa sessões antigas ── */
-const APP_VERSION='2.1';
+const APP_VERSION='2.3';
 if(localStorage.getItem('hf_version')!==APP_VERSION){
   /* Nova versão detectada — remove sessões para evitar estado corrompido */
   sessionStorage.removeItem('hf_admin');
@@ -1166,7 +1171,6 @@ function goTo(page){
 function openModal(id){
   const el=document.getElementById(id);
   el.style.display='flex';
-  /* pequeno delay para a transição */
   requestAnimationFrame(()=>el.classList.add('open'));
 }
 function closeModal(id){
@@ -1181,7 +1185,7 @@ document.querySelectorAll('.modal-bg').forEach(bg=>{
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
-    document.querySelectorAll('.modal-bg.open').forEach(m=>closeModal(m.id));
+    document.querySelectorAll('.modal-bg').forEach(m=>closeModal(m.id));
   }
 });
 
