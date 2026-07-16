@@ -921,7 +921,23 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
   </div>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, updateDoc, deleteDoc, query, where, onSnapshot }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+/* ═══════════════ FIREBASE ═══════════════ */
+const firebaseConfig = {
+  apiKey: "AIzaSyAYl2RZRDB--0wkrK-uCapOIVnNHyzq2Xg",
+  authDomain: "hub-fiscal.firebaseapp.com",
+  projectId: "hub-fiscal",
+  storageBucket: "hub-fiscal.firebasestorage.app",
+  messagingSenderId: "537151155306",
+  appId: "1:537151155306:web:c7a6c8241425bbf6352e13"
+};
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
 /* ═══════════════ CONSTANTES ═══════════════ */
 const REGION_NAMES={1:'Frontal',2:'Temporal',3:'Glabelar',4:'Supercílio',5:'Pálpebra superior',6:'Pálpebra inferior',7:'Nasociliar',8:'Sulco nasojugal',9:'Sulco palpebral lateral',10:'Nasal',11:'Malar',12:'Zigomática',13:'Fossa canina',14:'Sulco nasolabial',15:'Lábio superior',16:'Lábio inferior',17:'Bochecha',18:'Pré-auricular',19:'Sulco labiomentoniano',20:'Mentual',21:'Mandibular posterior',22:'Mandibular anterior'};
 
@@ -931,43 +947,74 @@ function fmtBRL(v){return'R$ '+(+v||0).toLocaleString('pt-BR',{minimumFractionDi
 function fmtDate(d){if(!d)return'—';const[y,m,day]=d.split('-');return`${day}/${m}/${y}`;}
 function today(){return new Date().toISOString().slice(0,10);}
 function hashPass(p){let h=0;for(let i=0;i<p.length;i++){h=((h<<5)-h)+p.charCodeAt(i);h|=0;}return h.toString(36);}
+function showLoading(msg='Carregando...'){document.getElementById('global-loading').style.display='flex';document.getElementById('global-loading-msg').textContent=msg;}
+function hideLoading(){document.getElementById('global-loading').style.display='none';}
 
-/* ═══════════════ AUTH & USERS ═══════════════ */
-/* Senha padrão admin: "admin123" — deve ser trocada no primeiro acesso */
+/* ═══════════════ FIRESTORE HELPERS ═══════════════ */
+/* CONFIG (senha admin, etc.) */
+async function getCfg(k){
+  const d=await getDoc(doc(db,'config',k));
+  return d.exists()?d.data().value:null;
+}
+async function setCfg(k,v){await setDoc(doc(db,'config',k),{value:v});}
+
+/* USUÁRIOS */
+async function getUsers(){
+  const snap=await getDocs(collection(db,'users'));
+  return snap.docs.map(d=>({id:d.id,...d.data()}));
+}
+async function saveUser(u){
+  const {id,...data}=u;
+  await setDoc(doc(db,'users',id),data);
+}
+async function deleteUserDoc(id){await deleteDoc(doc(db,'users',id));}
+async function findUserByEmail(email){
+  const snap=await getDocs(query(collection(db,'users'),where('email','==',email)));
+  if(snap.empty)return null;
+  return{id:snap.docs[0].id,...snap.docs[0].data()};
+}
+
+/* DADOS POR PROFISSIONAL */
+function col(name){return collection(db,`users/${currentUser.id}/${name}`);}
+async function loadCollection(name){
+  const snap=await getDocs(col(name));
+  return snap.docs.map(d=>({id:d.id,...d.data()}));
+}
+async function saveDoc(name,obj){
+  const {id,...data}=obj;
+  await setDoc(doc(db,`users/${currentUser.id}/${name}`,id),data);
+}
+async function deleteDocument(name,id){
+  await deleteDoc(doc(db,`users/${currentUser.id}/${name}`,id));
+}
+
+/* ═══════════════ ESTADO ═══════════════ */
 const DEFAULT_ADMIN_HASH=hashPass('admin123');
-function getAdminHash(){return localStorage.getItem('hf_admin_pass')||DEFAULT_ADMIN_HASH;}
-function setAdminHash(h){localStorage.setItem('hf_admin_pass',h);}
-
-function getUsers(){return JSON.parse(localStorage.getItem('hf_users')||'[]');}
-function saveUsers(u){localStorage.setItem('hf_users',JSON.stringify(u));}
-
 let currentUser=null;
-function key(k){return`hf_${currentUser.id}_${k}`;}
 let patients=[],procedures=[],expenses=[],appointments=[];
 
-function loadData(){
-  patients    =JSON.parse(localStorage.getItem(key('patients'))  ||'[]');
-  procedures  =JSON.parse(localStorage.getItem(key('procs'))     ||'[]');
-  expenses    =JSON.parse(localStorage.getItem(key('exps'))      ||'[]');
-  appointments=JSON.parse(localStorage.getItem(key('appts'))     ||'[]');
-}
-function save(){
-  localStorage.setItem(key('patients'),  JSON.stringify(patients));
-  localStorage.setItem(key('procs'),     JSON.stringify(procedures));
-  localStorage.setItem(key('exps'),      JSON.stringify(expenses));
-  localStorage.setItem(key('appts'),     JSON.stringify(appointments));
+async function loadData(){
+  showLoading('Carregando dados...');
+  [patients,procedures,expenses,appointments]=await Promise.all([
+    loadCollection('patients'),
+    loadCollection('procedures'),
+    loadCollection('expenses'),
+    loadCollection('appointments')
+  ]);
+  hideLoading();
 }
 
+async function save(name,obj){await saveDoc(name,obj);}
+async function remove(name,id){await deleteDocument(name,id);}
+
+/* ═══════════════ TELAS ═══════════════ */
 function hideAllScreens(){
   ['login-screen','admin-screen','pending-screen','blocked-screen']
     .forEach(id=>document.getElementById(id).style.display='none');
-  /* Fecha todos os modais abertos */
-  document.querySelectorAll('.modal-bg').forEach(m=>{
-    m.classList.remove('open');
-    m.style.display='none';
-  });
+  document.querySelectorAll('.modal-bg').forEach(m=>{m.classList.remove('open');m.style.display='none';});
 }
 
+/* ═══════════════ AUTH ═══════════════ */
 function switchTab(tab){
   document.getElementById('tab-login').classList.toggle('active',tab==='login');
   document.getElementById('tab-register').classList.toggle('active',tab==='register');
@@ -976,35 +1023,40 @@ function switchTab(tab){
   document.getElementById('li-err').textContent='';
   document.getElementById('rg-err').textContent='';
 }
+window.switchTab=switchTab;
 
-function doLogin(){
+async function doLogin(){
   const raw =document.getElementById('li-email').value.trim();
   const pass=document.getElementById('li-pass').value;
   const err =document.getElementById('li-err');
   err.textContent='';
   if(!raw||!pass){err.textContent='Preencha usuário/e-mail e senha.';return;}
 
-  /* ── Login admin ── */
+  /* Admin */
   if(raw.toLowerCase()==='admin'){
-    if(hashPass(pass)!==getAdminHash()){err.textContent='Senha de administrador incorreta.';return;}
+    showLoading('Verificando...');
+    const adminHash=await getCfg('admin_pass')||DEFAULT_ADMIN_HASH;
+    hideLoading();
+    if(hashPass(pass)!==adminHash){err.textContent='Senha de administrador incorreta.';return;}
     sessionStorage.removeItem('hf_session');
     sessionStorage.setItem('hf_admin','1');
     openAdminPanel();
     return;
   }
 
-  /* ── Login profissional ── */
-  const email=raw.toLowerCase();
-  const users=getUsers();
-  const user=users.find(u=>u.email===email&&u.pass===hashPass(pass));
-  if(!user){err.textContent='E-mail ou senha incorretos.';return;}
+  /* Profissional */
+  showLoading('Verificando...');
+  const user=await findUserByEmail(raw.toLowerCase());
+  hideLoading();
+  if(!user||user.pass!==hashPass(pass)){err.textContent='E-mail ou senha incorretos.';return;}
   const st=user.status||'pendente';
   if(st==='bloqueado'){hideAllScreens();document.getElementById('blocked-screen').style.display='flex';return;}
   if(st==='pendente') {hideAllScreens();document.getElementById('pending-screen').style.display='flex';return;}
-  loginSuccess(user);
+  await loginSuccess(user);
 }
+window.doLogin=doLogin;
 
-function doRegister(){
+async function doRegister(){
   const name =document.getElementById('rg-name').value.trim();
   const role =document.getElementById('rg-role').value.trim();
   const email=document.getElementById('rg-email').value.trim().toLowerCase();
@@ -1016,22 +1068,25 @@ function doRegister(){
   if(email==='admin'){err.textContent='Este usuário é reservado.';return;}
   if(pass.length<6){err.textContent='A senha deve ter pelo menos 6 caracteres.';return;}
   if(pass!==pass2){err.textContent='As senhas não coincidem.';return;}
-  const users=getUsers();
-  if(users.find(u=>u.email===email)){err.textContent='Este e-mail já está cadastrado.';return;}
+  showLoading('Criando conta...');
+  const existing=await findUserByEmail(email);
+  if(existing){hideLoading();err.textContent='Este e-mail já está cadastrado.';return;}
   const newUser={id:uid(),name,role:role||'Profissional',email,pass:hashPass(pass),status:'pendente',createdAt:today()};
-  users.push(newUser);saveUsers(users);
+  await saveUser(newUser);
+  hideLoading();
   hideAllScreens();
   document.getElementById('pending-screen').style.display='flex';
 }
+window.doRegister=doRegister;
 
-function loginSuccess(user){
+async function loginSuccess(user){
   currentUser=user;
-  /* Garante que sessão de admin não persiste */
   sessionStorage.removeItem('hf_admin');
-  sessionStorage.setItem('hf_session',JSON.stringify(user));
+  sessionStorage.setItem('hf_session',JSON.stringify({id:user.id}));
   document.getElementById('hdr-avatar').textContent=user.name.charAt(0).toUpperCase();
   document.getElementById('hdr-name').textContent=user.name+(user.role?` · ${user.role}`:'');
-  loadData();hideAllScreens();
+  await loadData();
+  hideAllScreens();
   renderDash();renderPatients();renderCalendar();
 }
 
@@ -1045,42 +1100,55 @@ function doLogout(){
   document.getElementById('li-pass').value='';
   document.getElementById('li-err').textContent='';
 }
+window.doLogout=doLogout;
 
 /* ═══════════════ ADMIN ═══════════════ */
-function openAdminPanel(){
+async function openAdminPanel(){
   hideAllScreens();
   document.getElementById('admin-screen').style.display='flex';
-  renderAdminPanel();
+  await renderAdminPanel();
 }
 function adminLogout(){
   sessionStorage.removeItem('hf_admin');
   hideAllScreens();
   document.getElementById('login-screen').style.display='flex';
 }
+window.adminLogout=adminLogout;
+
 function openChangeAdminPass(){
   ['cap-current','cap-new','cap-confirm'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('cap-err').textContent='';
   const el=document.getElementById('modal-change-admin-pass');
-  el.style.display='flex';
-  el.classList.add('open');
+  el.style.display='flex';el.classList.add('open');
   setTimeout(()=>document.getElementById('cap-current').focus(),80);
 }
-function doChangeAdminPass(){
+window.openChangeAdminPass=openChangeAdminPass;
+
+async function doChangeAdminPass(){
   const cur =document.getElementById('cap-current').value;
   const nw  =document.getElementById('cap-new').value;
   const conf=document.getElementById('cap-confirm').value;
   const err =document.getElementById('cap-err');
   err.textContent='';
-  if(hashPass(cur)!==getAdminHash()){err.textContent='Senha atual incorreta.';return;}
+  showLoading('Verificando...');
+  const adminHash=await getCfg('admin_pass')||DEFAULT_ADMIN_HASH;
+  hideLoading();
+  if(hashPass(cur)!==adminHash){err.textContent='Senha atual incorreta.';return;}
   if(nw.length<6){err.textContent='A nova senha deve ter pelo menos 6 caracteres.';return;}
   if(nw!==conf){err.textContent='As senhas não coincidem.';return;}
-  setAdminHash(hashPass(nw));
+  showLoading('Salvando...');
+  await setCfg('admin_pass',hashPass(nw));
+  hideLoading();
   closeModal('modal-change-admin-pass');
   alert('Senha alterada com sucesso!');
 }
-function renderAdminPanel(){
-  const users=getUsers();
-  const pend=users.filter(u=>(u.status||'pendente')==='pendente');
+window.doChangeAdminPass=doChangeAdminPass;
+
+async function renderAdminPanel(){
+  showLoading('Carregando profissionais...');
+  const users=await getUsers();
+  hideLoading();
+  const pend =users.filter(u=>(u.status||'pendente')==='pendente');
   const aprov=users.filter(u=>u.status==='aprovado');
   document.getElementById('adm-total').textContent=users.length;
   document.getElementById('adm-aprovados').textContent=aprov.length;
@@ -1093,6 +1161,7 @@ function renderAdminPanel(){
     ?users.sort((a,b)=>a.name.localeCompare(b.name)).map(profRow).join('')
     :'<div class="empty-state"><div class="empty-icon">👤</div><p>Nenhum profissional cadastrado ainda.</p></div>';
 }
+
 function profRow(u){
   const st=u.status||'pendente';
   const lbl={aprovado:'Aprovado',pendente:'Pendente',bloqueado:'Bloqueado'}[st];
@@ -1104,55 +1173,28 @@ function profRow(u){
       :`<button class="pr-btn approve" onclick="setStatus('${u.id}','aprovado')">Reativar</button>`;
   return`<div class="prof-row"><div><div class="pr-name">${u.name}</div><div class="pr-meta">${u.role||'Profissional'} · ${u.email} · Cadastro: ${fmtDate(u.createdAt)}</div></div><span class="pr-status st-${st}">${lbl}</span><div class="pr-actions">${acts}<button class="pr-btn del" onclick="deleteUser('${u.id}')">🗑</button></div></div>`;
 }
-function setStatus(id,status){
-  const users=getUsers();const i=users.findIndex(u=>u.id===id);if(i<0)return;
-  users[i].status=status;if(status==='aprovado')users[i].approvedAt=today();
-  saveUsers(users);renderAdminPanel();
+
+async function setStatus(id,status){
+  showLoading('Atualizando...');
+  const users=await getUsers();
+  const u=users.find(u=>u.id===id);
+  if(!u){hideLoading();return;}
+  u.status=status;
+  if(status==='aprovado')u.approvedAt=today();
+  await saveUser(u);
+  hideLoading();
+  await renderAdminPanel();
 }
-function deleteUser(id){
+window.setStatus=setStatus;
+
+async function deleteUser(id){
   if(!confirm('Excluir este profissional? O acesso será removido.'))return;
-  saveUsers(getUsers().filter(u=>u.id!==id));renderAdminPanel();
+  showLoading('Excluindo...');
+  await deleteUserDoc(id);
+  hideLoading();
+  await renderAdminPanel();
 }
-
-/* ── Controle de versão: limpa sessões antigas ── */
-const APP_VERSION='2.3';
-if(localStorage.getItem('hf_version')!==APP_VERSION){
-  /* Nova versão detectada — remove sessões para evitar estado corrompido */
-  sessionStorage.removeItem('hf_admin');
-  sessionStorage.removeItem('hf_session');
-  localStorage.setItem('hf_version',APP_VERSION);
-}
-
-/* ── Limpeza de sessão corrompida ao carregar ── */
-(function clearStaleSession(){
-  /* Se há sessão de profissional E sessão de admin ao mesmo tempo, limpa o admin */
-  const hasProf=!!sessionStorage.getItem('hf_session');
-  const hasAdmin=sessionStorage.getItem('hf_admin')==='1';
-  if(hasProf&&hasAdmin){sessionStorage.removeItem('hf_admin');}
-})();
-
-/* ── Sessão ── */
-(function checkSession(){
-  if(sessionStorage.getItem('hf_admin')==='1'){
-    /* Restaura sessão admin sem mostrar alerta de senha */
-    hideAllScreens();
-    document.getElementById('admin-screen').style.display='flex';
-    renderAdminPanel();
-    return;
-  }
-  const sess=sessionStorage.getItem('hf_session');
-  if(sess){
-    try{
-      const user=JSON.parse(sess);
-      const fresh=getUsers().find(u=>u.id===user.id);
-      if(!fresh){doLogout();return;}
-      if(fresh.status==='bloqueado'){hideAllScreens();document.getElementById('blocked-screen').style.display='flex';return;}
-      if(fresh.status==='pendente') {hideAllScreens();document.getElementById('pending-screen').style.display='flex';return;}
-      loginSuccess(fresh);
-    }catch(e){sessionStorage.removeItem('hf_session');}
-  }
-})();
-
+window.deleteUser=deleteUser;
 
 /* ═══════════════ NAVEGAÇÃO ═══════════════ */
 function goTo(page){
@@ -1166,6 +1208,7 @@ function goTo(page){
   if(page==='expenses'){renderExpenses();renderExpStats();}
   if(page==='agenda'){renderCalendar();renderDayPanel();}
 }
+window.goTo=goTo;
 
 /* ═══════════════ MODAL ═══════════════ */
 function openModal(id){
@@ -1178,58 +1221,15 @@ function closeModal(id){
   el.classList.remove('open');
   el.style.display='none';
 }
+window.closeModal=closeModal;
 document.querySelectorAll('.modal-bg').forEach(bg=>{
-  bg.addEventListener('mousedown',e=>{
-    if(e.target===bg) closeModal(bg.id);
-  });
+  bg.addEventListener('mousedown',e=>{if(e.target===bg)closeModal(bg.id);});
 });
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){
-    document.querySelectorAll('.modal-bg').forEach(m=>closeModal(m.id));
-  }
+  if(e.key==='Escape')document.querySelectorAll('.modal-bg').forEach(m=>closeModal(m.id));
 });
 
 /* ═══════════════ PACIENTES ═══════════════ */
-/* Máscara (00) 00000-0000 */
-function maskPhone(el){
-  let v=el.value.replace(/\D/g,'');
-  if(v.length>11)v=v.slice(0,11);
-  if(v.length<=10)
-    v=v.replace(/^(\d{2})(\d{4})(\d{0,4})$/,'($1) $2-$3');
-  else
-    v=v.replace(/^(\d{2})(\d{5})(\d{0,4})$/,'($1) $2-$3');
-  el.value=v.replace(/-$/,'');
-}
-/* Máscara 000.000.000-00 */
-function maskCPF(el){
-  let v=el.value.replace(/\D/g,'');
-  if(v.length>11)v=v.slice(0,11);
-  v=v.replace(/^(\d{3})(\d)/,'$1.$2');
-  v=v.replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3');
-  v=v.replace(/\.(\d{3})(\d{1,2})$/,'.$1-$2');
-  el.value=v;
-}
-/* Máscara DD/MM/AAAA */
-function maskDate(el){
-  let v=el.value.replace(/\D/g,'');
-  if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);
-  if(v.length>5)v=v.slice(0,5)+'/'+v.slice(5,9);
-  el.value=v;
-}
-/* Converte DD/MM/AAAA → YYYY-MM-DD para armazenar */
-function parseDateBR(str){
-  if(!str)return'';
-  const parts=str.split('/');
-  if(parts.length!==3||parts[2].length<4)return'';
-  return`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-}
-/* Converte YYYY-MM-DD → DD/MM/AAAA para exibir */
-function formatDateBR(str){
-  if(!str)return'';
-  const[y,m,d]=str.split('-');
-  return`${d}/${m}/${y}`;
-}
-
 function openPatientModal(id){
   const p=id?patients.find(x=>x.id===id):null;
   document.getElementById('mp-title').textContent=p?'Editar paciente':'Nova paciente';
@@ -1237,29 +1237,40 @@ function openPatientModal(id){
   document.getElementById('mp-birth').value=p?.birth?formatDateBR(p.birth):'';
   document.getElementById('mp-phone').value=p?.phone||'';
   document.getElementById('mp-email').value=p?.email||'';
-  document.getElementById('mp-cpf').value=p?.cpf||'';  document.getElementById('mp-obs').value=p?.obs||'';
+  document.getElementById('mp-cpf').value=p?.cpf||'';
+  document.getElementById('mp-obs').value=p?.obs||'';
   document.getElementById('modal-patient').dataset.editId=id||'';
   openModal('modal-patient');
   setTimeout(()=>document.getElementById('mp-name').focus(),80);
 }
+window.openPatientModal=openPatientModal;
 
-function savePatient(){
+async function savePatient(){
   const name=document.getElementById('mp-name').value.trim();
   if(!name){alert('Nome é obrigatório.');return;}
   const birthRaw=document.getElementById('mp-birth').value.trim();
   const birth=parseDateBR(birthRaw);
-  if(birthRaw&&!birth){alert('Data de nascimento inválida. Use o formato DD/MM/AAAA.');document.getElementById('mp-birth').focus();return;}
+  if(birthRaw&&!birth){alert('Data de nascimento inválida. Use DD/MM/AAAA.');return;}
   const editId=document.getElementById('modal-patient').dataset.editId;
   const obj={id:editId||uid(),name,birth,phone:document.getElementById('mp-phone').value,email:document.getElementById('mp-email').value,cpf:document.getElementById('mp-cpf').value,obs:document.getElementById('mp-obs').value,createdAt:today()};
+  showLoading('Salvando...');
+  await save('patients',obj);
   if(editId){const i=patients.findIndex(x=>x.id===editId);patients[i]={...patients[i],...obj};}
   else patients.push(obj);
-  save();renderPatients();closeModal('modal-patient');renderDash();
+  hideLoading();
+  renderPatients();closeModal('modal-patient');renderDash();
 }
+window.savePatient=savePatient;
 
-function deletePatient(id){
-  if(!confirm('Excluir esta paciente? Os procedimentos associados serão mantidos.'))return;
-  patients=patients.filter(x=>x.id!==id);save();renderPatients();renderDash();
+async function deletePatient(id){
+  if(!confirm('Excluir esta paciente?'))return;
+  showLoading('Excluindo...');
+  await remove('patients',id);
+  patients=patients.filter(x=>x.id!==id);
+  hideLoading();
+  renderPatients();renderDash();
 }
+window.deletePatient=deletePatient;
 
 function renderPatients(){
   const q=document.getElementById('patient-search').value.toLowerCase();
@@ -1278,13 +1289,14 @@ function renderPatients(){
       <td>${last?fmtDate(last.date):'—'}</td>
       <td><span class="badge badge-gold">${procs_.length} proc.</span></td>
       <td><div class="tbl-action">
-        <button class="btn-icon" title="Ver perfil" onclick="openProfile('${p.id}')">👁</button>
-        <button class="btn-icon" title="Editar" onclick="openPatientModal('${p.id}')">✏️</button>
-        <button class="btn-icon" title="Excluir" onclick="deletePatient('${p.id}')">🗑</button>
+        <button class="btn-icon" onclick="openProfile('${p.id}')">👁</button>
+        <button class="btn-icon" onclick="openPatientModal('${p.id}')">✏️</button>
+        <button class="btn-icon" onclick="deletePatient('${p.id}')">🗑</button>
       </div></td>
     </tr>`;
   }).join('');
 }
+window.renderPatients=renderPatients;
 
 function openProfile(id){
   const p=patients.find(x=>x.id===id);if(!p)return;
@@ -1295,19 +1307,16 @@ function openProfile(id){
   if(p.obs){obsEl.textContent='⚠ '+p.obs;obsEl.style.display='block';}else obsEl.style.display='none';
   const procs_=procedures.filter(x=>x.patientId===id).sort((a,b)=>b.date.localeCompare(a.date));
   const hist=document.getElementById('mpf-hist');
-  if(!procs_.length){hist.innerHTML='<div class="empty-state" style="padding:24px"><p>Nenhum procedimento registrado ainda.</p></div>';}
-  else hist.innerHTML=procs_.map(pr=>`<div class="hist-item">
-    <div class="hist-header">
-      <span class="hist-title">${pr.proc} <span class="tag">${REGION_NAMES[pr.region]||pr.region}${pr.side&&pr.side!=='N/A'?' — '+pr.side:''}</span></span>
-      <span class="badge badge-gold">${fmtBRL(pr.value)}</span>
-    </div>
+  hist.innerHTML=procs_.length?procs_.map(pr=>`<div class="hist-item">
+    <div class="hist-header"><span class="hist-title">${pr.proc}<span class="tag">${REGION_NAMES[pr.region]||pr.region}${pr.side&&pr.side!=='N/A'?' — '+pr.side:''}</span></span><span class="badge badge-gold">${fmtBRL(pr.value)}</span></div>
     <div class="hist-meta">${fmtDate(pr.date)} · ${pr.pay||''}</div>
     ${pr.product?`<div class="hist-desc">Produto: ${pr.product}${pr.qty?' — '+pr.qty:''}</div>`:''}
-    ${pr.obs?`<div class="hist-desc" style="margin-top:4px;color:var(--text3)">${pr.obs}</div>`:''}
-  </div>`).join('');
+    ${pr.obs?`<div class="hist-desc" style="color:var(--text3)">${pr.obs}</div>`:''}
+  </div>`).join(''):'<div class="empty-state"><p>Nenhum procedimento ainda.</p></div>';
   document.getElementById('mpf-edit-btn').onclick=()=>{closeModal('modal-profile');openPatientModal(id);};
   openModal('modal-profile');
 }
+window.openProfile=openProfile;
 
 /* ═══════════════ PROCEDIMENTOS ═══════════════ */
 function fillPatientSelect(sel,val){
@@ -1332,8 +1341,9 @@ function openProcModal(regionId,editId){
   openModal('modal-proc');
   setTimeout(()=>document.getElementById('mpr-patient').focus(),80);
 }
+window.openProcModal=openProcModal;
 
-function saveProc(){
+async function saveProc(){
   const patientId=document.getElementById('mpr-patient').value;
   const proc=document.getElementById('mpr-proc').value.trim();
   const value=document.getElementById('mpr-value').value;
@@ -1341,15 +1351,24 @@ function saveProc(){
   if(!patientId||!proc||!value||!region){alert('Preencha: Paciente, Região, Procedimento e Valor.');return;}
   const editId=document.getElementById('mpr-id').value;
   const obj={id:editId||uid(),patientId,date:document.getElementById('mpr-date').value,region:+region,side:document.getElementById('mpr-side').value,proc,product:document.getElementById('mpr-product').value,qty:document.getElementById('mpr-qty').value,value:+value,pay:document.getElementById('mpr-pay').value,obs:document.getElementById('mpr-obs').value};
+  showLoading('Salvando...');
+  await save('procedures',obj);
   if(editId){const i=procedures.findIndex(x=>x.id===editId);procedures[i]=obj;}
   else procedures.push(obj);
-  save();closeModal('modal-proc');renderProcedures();renderRegionList();renderDash();
+  hideLoading();
+  closeModal('modal-proc');renderProcedures();renderRegionList();renderDash();
 }
+window.saveProc=saveProc;
 
-function deleteProc(id){
+async function deleteProc(id){
   if(!confirm('Excluir este procedimento?'))return;
-  procedures=procedures.filter(x=>x.id!==id);save();renderProcedures();renderRegionList();renderDash();
+  showLoading('Excluindo...');
+  await remove('procedures',id);
+  procedures=procedures.filter(x=>x.id!==id);
+  hideLoading();
+  renderProcedures();renderRegionList();renderDash();
 }
+window.deleteProc=deleteProc;
 
 function renderProcedures(){
   const q=document.getElementById('proc-search').value.toLowerCase();
@@ -1373,34 +1392,29 @@ function renderProcedures(){
   </tr>`).join('');
 }
 
-/* ── Mapa facial ── */
 function clickRegion(id){
-  if(!patients.length){alert('Cadastre uma paciente primeiro.');goTo('patients');document.querySelector('.nav-btn:nth-child(2)').classList.add('active');document.querySelector('.nav-btn:nth-child(3)').classList.remove('active');return;}
+  if(!patients.length){alert('Cadastre uma paciente primeiro.');return;}
   openProcModal(id);
 }
+window.clickRegion=clickRegion;
 
 function renderRegionList(){
-  const ids=[...new Set(procedures.map(p=>p.region))].sort((a,b)=>a-b);
   const allIds=Array.from({length:22},(_,i)=>i+1);
   const list=document.getElementById('region-list');
-
-  /* Atualizar SVG */
   allIds.forEach(id=>{
     ['',`L`,`R`].forEach(s=>{
       const el=document.getElementById(`rg${id}${s}`);
       if(el){
-        const hasProc=procedures.some(p=>p.region===id);
-        el.classList.toggle('has-proc',hasProc);
-        if(hasProc){el.style.fill='rgba(201,169,110,.22)';el.style.stroke='rgba(201,169,110,.85)';}
+        const has=procedures.some(p=>p.region===id);
+        if(has){el.style.fill='rgba(201,169,110,.22)';el.style.stroke='rgba(201,169,110,.85)';}
         else{el.style.fill='';el.style.stroke='';}
       }
     });
   });
-
   list.innerHTML=allIds.map(id=>{
     const procs_=procedures.filter(p=>p.region===id);
     const latest=procs_.sort((a,b)=>b.date.localeCompare(a.date))[0];
-    return`<div class="reg-item${procs_.length?'':' '}" onclick="clickRegion(${id})">
+    return`<div class="reg-item" onclick="clickRegion(${id})">
       <div class="reg-name"><span class="reg-dot" style="background:${procs_.length?'var(--gold)':'var(--text3)'}"></span>${id}. ${REGION_NAMES[id]}</div>
       <div class="reg-procs">${procs_.length?`${procs_.length} proc. · Último: ${fmtDate(latest?.date)}`:'Sem procedimentos — clique para adicionar'}</div>
     </div>`;
@@ -1422,10 +1436,10 @@ function openExpModal(editId){
   document.getElementById('me-obs').value=e?.obs||'';
   document.getElementById('me-id').value=e?.id||'';
   openModal('modal-exp');
-  /* Auto-calcular total */
   ['me-qty','me-unit'].forEach(f=>{document.getElementById(f).oninput=calcExpTotal;});
   setTimeout(()=>document.getElementById('me-desc').focus(),80);
 }
+window.openExpModal=openExpModal;
 
 function calcExpTotal(){
   const qty=+document.getElementById('me-qty').value||0;
@@ -1433,22 +1447,31 @@ function calcExpTotal(){
   document.getElementById('me-total').value=(qty*unit).toFixed(2);
 }
 
-function saveExp(){
+async function saveExp(){
   const desc=document.getElementById('me-desc').value.trim();
   const unit=document.getElementById('me-unit').value;
   if(!desc||!unit){alert('Preencha Descrição e Valor unitário.');return;}
   const qty=+document.getElementById('me-qty').value||1;
   const editId=document.getElementById('me-id').value;
   const obj={id:editId||uid(),date:document.getElementById('me-date').value,cat:document.getElementById('me-cat').value,desc,supplier:document.getElementById('me-supplier').value,nf:document.getElementById('me-nf').value,qty,unit:+unit,total:qty*(+unit),obs:document.getElementById('me-obs').value};
+  showLoading('Salvando...');
+  await save('expenses',obj);
   if(editId){const i=expenses.findIndex(x=>x.id===editId);expenses[i]=obj;}
   else expenses.push(obj);
-  save();closeModal('modal-exp');renderExpenses();renderExpStats();renderDash();
+  hideLoading();
+  closeModal('modal-exp');renderExpenses();renderExpStats();renderDash();
 }
+window.saveExp=saveExp;
 
-function deleteExp(id){
+async function deleteExp(id){
   if(!confirm('Excluir esta despesa?'))return;
-  expenses=expenses.filter(x=>x.id!==id);save();renderExpenses();renderExpStats();renderDash();
+  showLoading('Excluindo...');
+  await remove('expenses',id);
+  expenses=expenses.filter(x=>x.id!==id);
+  hideLoading();
+  renderExpenses();renderExpStats();renderDash();
 }
+window.deleteExp=deleteExp;
 
 function renderExpenses(){
   const q=document.getElementById('exp-search').value.toLowerCase();
@@ -1498,32 +1521,20 @@ function renderDash(){
   document.getElementById('stat-lucro').className='stat-value'+(lucro<0?' negative':'');
   document.getElementById('stat-pacientes').textContent=patients.length;
   document.getElementById('stat-pac-sub').textContent=`${patients.length} cadastrado${patients.length!==1?'s':''}`;
-
-  /* Últimos 5 procs */
   const lastProcs=procedures.sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
-  document.getElementById('dash-procs').innerHTML=lastProcs.length?lastProcs.map(p=>`<div class="hist-item">
-    <div class="hist-header"><span class="hist-title">${p.proc}</span><span class="badge badge-gold">${fmtBRL(p.value)}</span></div>
-    <div class="hist-meta">${patMap[p.patientId]||'—'} · ${fmtDate(p.date)} · ${REGION_NAMES[p.region]}</div>
-  </div>`).join(''):'<div class="empty-state"><div class="empty-icon">💉</div><p>Nenhum procedimento ainda.</p></div>';
-
+  document.getElementById('dash-procs').innerHTML=lastProcs.length?lastProcs.map(p=>`<div class="hist-item"><div class="hist-header"><span class="hist-title">${p.proc}</span><span class="badge badge-gold">${fmtBRL(p.value)}</span></div><div class="hist-meta">${patMap[p.patientId]||'—'} · ${fmtDate(p.date)} · ${REGION_NAMES[p.region]}</div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">💉</div><p>Nenhum procedimento ainda.</p></div>';
   const lastExps=expenses.sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
-  document.getElementById('dash-desp').innerHTML=lastExps.length?lastExps.map(e=>`<div class="hist-item">
-    <div class="hist-header"><span class="hist-title">${e.desc}</span><span class="badge badge-rose">${fmtBRL(e.total)}</span></div>
-    <div class="hist-meta">${e.cat} · ${fmtDate(e.date)}${e.supplier?' · '+e.supplier:''}</div>
-  </div>`).join(''):'<div class="empty-state"><div class="empty-icon">🧾</div><p>Nenhuma despesa ainda.</p></div>';
+  document.getElementById('dash-desp').innerHTML=lastExps.length?lastExps.map(e=>`<div class="hist-item"><div class="hist-header"><span class="hist-title">${e.desc}</span><span class="badge badge-rose">${fmtBRL(e.total)}</span></div><div class="hist-meta">${e.cat} · ${fmtDate(e.date)}${e.supplier?' · '+e.supplier:''}</div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">🧾</div><p>Nenhuma despesa ainda.</p></div>';
 }
-
-/* INIT — renderização é feita pelo loginSuccess */
-/* renderCalendar é chamado abaixo, após a declaração */
 
 /* ═══════════════ AGENDA ═══════════════ */
 const MONTHS=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-let calYear=new Date().getFullYear();
-let calMonth=new Date().getMonth();
-let selectedDay=today(); /* YYYY-MM-DD */
+const DAY_NAMES=['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+let calYear=new Date().getFullYear(),calMonth=new Date().getMonth(),selectedDay=today();
 
 function calPrev(){calMonth--;if(calMonth<0){calMonth=11;calYear--;}renderCalendar();}
 function calNext(){calMonth++;if(calMonth>11){calMonth=0;calYear++;}renderCalendar();}
+window.calPrev=calPrev;window.calNext=calNext;
 
 function renderCalendar(){
   document.getElementById('cal-title').textContent=`${MONTHS[calMonth]} ${calYear}`;
@@ -1531,155 +1542,146 @@ function renderCalendar(){
   const firstDay=new Date(calYear,calMonth,1).getDay();
   const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
   const daysInPrev=new Date(calYear,calMonth,0).getDate();
-
   const grid=document.getElementById('cal-grid');
   while(grid.children.length>7)grid.removeChild(grid.lastChild);
-
   function addDay(label,dateStr,extra){
     const div=document.createElement('div');
-    const isToday=dateStr===todayStr;
-    const isSel=dateStr===selectedDay;
+    const isToday=dateStr===todayStr,isSel=dateStr===selectedDay;
     const hasAppt=appointments.some(a=>a.date===dateStr&&a.status!=='cancelado');
     div.className=['cal-day',extra||'',isToday?'today':'',isSel?'selected':''].filter(Boolean).join(' ');
-    const num=document.createElement('span');
-    num.textContent=label;
-    div.appendChild(num);
-    if(hasAppt){
-      const dot=document.createElement('span');
-      dot.style.cssText='width:5px;height:5px;border-radius:50%;background:var(--teal);display:block;flex-shrink:0';
-      div.appendChild(dot);
-    }
-    div.onclick=()=>selectDay(dateStr);
-    grid.appendChild(div);
+    const num=document.createElement('span');num.textContent=label;div.appendChild(num);
+    if(hasAppt){const dot=document.createElement('span');dot.style.cssText='width:5px;height:5px;border-radius:50%;background:var(--teal);display:block';div.appendChild(dot);}
+    div.onclick=()=>selectDay(dateStr);grid.appendChild(div);
   }
-
-  /* Dias do mês anterior */
-  for(let i=firstDay-1;i>=0;i--){
-    const d=daysInPrev-i;
-    const m=calMonth===0?12:calMonth;
-    const y=calMonth===0?calYear-1:calYear;
-    addDay(d,`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,'other-month');
-  }
-  /* Dias do mês atual */
-  for(let d=1;d<=daysInMonth;d++){
-    addDay(d,`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,'');
-  }
-  /* Dias do próximo mês para completar a grade */
-  const total=firstDay+daysInMonth;
-  const remaining=total%7===0?0:7-(total%7);
-  for(let d=1;d<=remaining;d++){
-    const m=calMonth+2>12?1:calMonth+2;
-    const y=calMonth+2>12?calYear+1:calYear;
-    addDay(d,`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,'other-month');
-  }
+  for(let i=firstDay-1;i>=0;i--){const d=daysInPrev-i;const m=calMonth===0?12:calMonth;const y=calMonth===0?calYear-1:calYear;addDay(d,`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,'other-month');}
+  for(let d=1;d<=daysInMonth;d++){addDay(d,`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`);}
+  const total=firstDay+daysInMonth;const remaining=total%7===0?0:7-(total%7);
+  for(let d=1;d<=remaining;d++){const m=calMonth+2>12?1:calMonth+2;const y=calMonth+2>12?calYear+1:calYear;addDay(d,`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,'other-month');}
   renderDayPanel();
 }
 
 function selectDay(dateStr){
   selectedDay=dateStr;
-  /* Navegar o calendário se necessário */
   const[y,m]=dateStr.split('-').map(Number);
   if(y!==calYear||m-1!==calMonth){calYear=y;calMonth=m-1;}
   renderCalendar();
 }
+window.selectDay=selectDay;
 
-const DAY_NAMES=['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
 function renderDayPanel(){
   const[y,m,d]=selectedDay.split('-').map(Number);
   const dow=new Date(y,m-1,d).getDay();
   const patMap=Object.fromEntries(patients.map(p=>[p.id,p.name]));
   document.getElementById('day-title').textContent=`${d} de ${MONTHS[m-1]} — ${DAY_NAMES[dow]}`;
-
   const dayAppts=appointments.filter(a=>a.date===selectedDay).sort((a,b)=>a.time.localeCompare(b.time));
   const cont=document.getElementById('day-appts');
-  if(!dayAppts.length){
-    cont.innerHTML=`<div class="empty-state"><div class="empty-icon">📅</div><p>Nenhum agendamento neste dia.<br>Clique em "+ Novo agendamento" para adicionar.</p></div>`;
-    return;
-  }
-  cont.innerHTML=dayAppts.map(a=>`
-    <div class="appt-card">
-      <div class="appt-time">${a.time}</div>
-      <div class="appt-info">
-        <div class="appt-patient">${patMap[a.patientId]||'—'}</div>
-        ${a.proc?`<div class="appt-detail">${a.proc}${a.duration?' · '+a.duration+' min':''}</div>`:''}
-        ${a.prof?`<div class="appt-prof">👤 ${a.prof}</div>`:''}
-        ${a.obs?`<div class="appt-detail" style="color:var(--text3);margin-top:2px">${a.obs}</div>`:''}
+  if(!dayAppts.length){cont.innerHTML=`<div class="empty-state"><div class="empty-icon">📅</div><p>Nenhum agendamento neste dia.</p></div>`;return;}
+  cont.innerHTML=dayAppts.map(a=>`<div class="appt-card">
+    <div class="appt-time">${a.time}</div>
+    <div class="appt-info">
+      <div class="appt-patient">${patMap[a.patientId]||'—'}</div>
+      ${a.proc?`<div class="appt-detail">${a.proc}${a.duration?' · '+a.duration+' min':''}</div>`:''}
+      ${a.prof?`<div class="appt-prof">👤 ${a.prof}</div>`:''}
+      ${a.obs?`<div class="appt-detail" style="color:var(--text3)">${a.obs}</div>`:''}
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <span class="status-badge status-${a.status}">${a.status.charAt(0).toUpperCase()+a.status.slice(1)}</span>
+      <div class="appt-actions">
+        <button class="btn-icon" onclick="openApptModal('${a.id}')">✏️</button>
+        <button class="btn-icon" onclick="deleteAppt('${a.id}')">🗑</button>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-        <span class="status-badge status-${a.status}">${a.status.charAt(0).toUpperCase()+a.status.slice(1)}</span>
-        <div class="appt-actions">
-          <button class="btn-icon" title="Editar" onclick="openApptModal('${a.id}')">✏️</button>
-          <button class="btn-icon" title="Excluir" onclick="deleteAppt('${a.id}')">🗑</button>
-        </div>
-      </div>
-    </div>`).join('');
+    </div>
+  </div>`).join('');
 }
 
 function openApptModal(editId){
-  editId = editId || null;
-  const a = editId ? appointments.find(x=>x.id===editId) : null;
-  document.getElementById('ma-title').textContent = a ? 'Editar agendamento' : 'Novo agendamento';
-
-  /* Preenche select de pacientes */
-  const sel = document.getElementById('ma-patient');
-  sel.innerHTML = '<option value="">Selecione a paciente...</option>' +
-    patients.map(p=>`<option value="${p.id}"${p.id===a?.patientId?' selected':''}>${p.name}</option>`).join('');
-
-  document.getElementById('ma-prof').value   = a?.prof     || '';
-  document.getElementById('ma-date').value   = a?.date     || selectedDay;
-  document.getElementById('ma-time').value   = a?.time     || '09:00';
-  document.getElementById('ma-duration').value = a?.duration || 60;
-  document.getElementById('ma-status').value = a?.status   || 'agendado';
-  document.getElementById('ma-proc').value   = a?.proc     || '';
-  document.getElementById('ma-obs').value    = a?.obs      || '';
-  document.getElementById('ma-id').value     = a?.id       || '';
-
+  editId=editId||null;
+  const a=editId?appointments.find(x=>x.id===editId):null;
+  document.getElementById('ma-title').textContent=a?'Editar agendamento':'Novo agendamento';
+  const sel=document.getElementById('ma-patient');
+  sel.innerHTML='<option value="">Selecione a paciente...</option>'+patients.map(p=>`<option value="${p.id}"${p.id===a?.patientId?' selected':''}>${p.name}</option>`).join('');
+  document.getElementById('ma-prof').value=a?.prof||'';
+  document.getElementById('ma-date').value=a?.date||selectedDay;
+  document.getElementById('ma-time').value=a?.time||'09:00';
+  document.getElementById('ma-duration').value=a?.duration||60;
+  document.getElementById('ma-status').value=a?.status||'agendado';
+  document.getElementById('ma-proc').value=a?.proc||'';
+  document.getElementById('ma-obs').value=a?.obs||'';
+  document.getElementById('ma-id').value=a?.id||'';
   openModal('modal-appt');
-  setTimeout(()=>document.getElementById('ma-patient').focus(), 80);
+  setTimeout(()=>document.getElementById('ma-patient').focus(),80);
 }
+window.openApptModal=openApptModal;
 
-function saveAppt(){
-  const patientId = document.getElementById('ma-patient').value;
-  const date      = document.getElementById('ma-date').value;
-  const time      = document.getElementById('ma-time').value;
-  const prof      = document.getElementById('ma-prof').value.trim();
+async function saveAppt(){
+  const patientId=document.getElementById('ma-patient').value;
+  const date=document.getElementById('ma-date').value;
+  const time=document.getElementById('ma-time').value;
+  const prof=document.getElementById('ma-prof').value.trim();
+  if(!patientId){alert('Selecione uma paciente.');return;}
+  if(!date){alert('Informe a data.');return;}
+  if(!time){alert('Informe o horário.');return;}
+  if(!prof){alert('Informe o profissional.');return;}
+  const editId=document.getElementById('ma-id').value;
+  const obj={id:editId||uid(),patientId,prof,date,time,duration:+document.getElementById('ma-duration').value,status:document.getElementById('ma-status').value,proc:document.getElementById('ma-proc').value.trim(),obs:document.getElementById('ma-obs').value.trim()};
+  showLoading('Salvando...');
+  await save('appointments',obj);
+  if(editId){const i=appointments.findIndex(x=>x.id===editId);appointments[i]=obj;}
+  else appointments.push(obj);
+  selectedDay=date;const[y,m]=date.split('-').map(Number);calYear=y;calMonth=m-1;
+  hideLoading();
+  closeModal('modal-appt');renderCalendar();
+}
+window.saveAppt=saveAppt;
 
-  if(!patientId){ alert('Selecione uma paciente.'); return; }
-  if(!date)     { alert('Informe a data.'); return; }
-  if(!time)     { alert('Informe o horário.'); return; }
-  if(!prof)     { alert('Informe o profissional.'); return; }
-
-  const editId = document.getElementById('ma-id').value;
-  const obj = {
-    id:       editId || uid(),
-    patientId, prof, date, time,
-    duration: +document.getElementById('ma-duration').value,
-    status:   document.getElementById('ma-status').value,
-    proc:     document.getElementById('ma-proc').value.trim(),
-    obs:      document.getElementById('ma-obs').value.trim()
-  };
-
-  if(editId){
-    const i = appointments.findIndex(x=>x.id===editId);
-    appointments[i] = obj;
-  } else {
-    appointments.push(obj);
-  }
-
-  selectedDay = date;
-  const [y,m] = date.split('-').map(Number);
-  calYear = y; calMonth = m-1;
-
-  save();
-  closeModal('modal-appt');
+async function deleteAppt(id){
+  if(!confirm('Excluir este agendamento?'))return;
+  showLoading('Excluindo...');
+  await remove('appointments',id);
+  appointments=appointments.filter(x=>x.id!==id);
+  hideLoading();
   renderCalendar();
 }
+window.deleteAppt=deleteAppt;
 
-function deleteAppt(id){
-  if(!confirm('Excluir este agendamento?'))return;
-  appointments=appointments.filter(x=>x.id!==id);
-  save();renderCalendar();
-}
+/* ═══════════════ MÁSCARAS ═══════════════ */
+function maskPhone(el){let v=el.value.replace(/\D/g,'');if(v.length>11)v=v.slice(0,11);if(v.length<=10)v=v.replace(/^(\d{2})(\d{4})(\d{0,4})$/,'($1) $2-$3');else v=v.replace(/^(\d{2})(\d{5})(\d{0,4})$/,'($1) $2-$3');el.value=v.replace(/-$/,'');}
+function maskCPF(el){let v=el.value.replace(/\D/g,'');if(v.length>11)v=v.slice(0,11);v=v.replace(/^(\d{3})(\d)/,'$1.$2');v=v.replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3');v=v.replace(/\.(\d{3})(\d{1,2})$/,'.$1-$2');el.value=v;}
+function maskDate(el){let v=el.value.replace(/\D/g,'');if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);if(v.length>5)v=v.slice(0,5)+'/'+v.slice(5,9);el.value=v;}
+function parseDateBR(str){if(!str)return'';const parts=str.split('/');if(parts.length!==3||parts[2].length<4)return'';return`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;}
+function formatDateBR(str){if(!str)return'';const[y,m,d]=str.split('-');return`${d}/${m}/${y}`;}
+window.maskPhone=maskPhone;window.maskCPF=maskCPF;window.maskDate=maskDate;
+
+/* ═══════════════ SESSÃO ═══════════════ */
+(async function checkSession(){
+  if(sessionStorage.getItem('hf_admin')==='1'){
+    hideAllScreens();
+    document.getElementById('admin-screen').style.display='flex';
+    await renderAdminPanel();
+    return;
+  }
+  const sess=sessionStorage.getItem('hf_session');
+  if(sess){
+    try{
+      const {id}=JSON.parse(sess);
+      showLoading('Restaurando sessão...');
+      const snap=await getDoc(doc(db,'users',id));
+      hideLoading();
+      if(!snap.exists()){doLogout();return;}
+      const fresh={id:snap.id,...snap.data()};
+      if(fresh.status==='bloqueado'){hideAllScreens();document.getElementById('blocked-screen').style.display='flex';return;}
+      if(fresh.status==='pendente') {hideAllScreens();document.getElementById('pending-screen').style.display='flex';return;}
+      await loginSuccess(fresh);
+    }catch(e){hideLoading();sessionStorage.removeItem('hf_session');}
+  }
+})();
 </script>
+
+<!-- Loading global -->
+<div id="global-loading" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:10px">
+  <div style="width:40px;height:40px;border:3px solid rgba(201,169,110,.3);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+  <div id="global-loading-msg" style="color:var(--gold);font-size:13px">Carregando...</div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 </body>
 </html>
