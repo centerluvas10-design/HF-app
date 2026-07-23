@@ -1028,10 +1028,6 @@ async function doLogin(){
   /* Admin — verificação direta sem Firestore */
   if(raw.toLowerCase()==='admin'){
     const inputHash=hashPass(pass);
-    /* DEBUG TEMPORÁRIO — remover depois */
-    console.log('Hash digitado:', inputHash);
-    console.log('Hash esperado:', CURRENT_ADMIN_HASH);
-    alert(`DEBUG:\nHash digitado: ${inputHash}\nHash esperado: ${CURRENT_ADMIN_HASH}\n\nSão iguais? ${inputHash===CURRENT_ADMIN_HASH}`);
     /* Verifica contra hash do código */
     let match=(inputHash===CURRENT_ADMIN_HASH||inputHash===DEFAULT_ADMIN_HASH);
     /* Tenta também via Firestore (se disponível) */
