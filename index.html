@@ -1025,18 +1025,25 @@ async function doLogin(){
   err.textContent='';
   if(!raw||!pass){err.textContent='Preencha usuário/e-mail e senha.';return;}
 
-  /* Admin */
+  /* Admin — verificação direta sem Firestore */
   if(raw.toLowerCase()==='admin'){
-    showLoading('Verificando...');
-    let adminHash=CURRENT_ADMIN_HASH;
-    try{
-      const cfgDoc=await getDoc(doc(db,'config','admin_pass'));
-      if(cfgDoc.exists()&&cfgDoc.data().value){
-        adminHash=cfgDoc.data().value;
-      }
-    }catch(e){}
-    hideLoading();
-    if(hashPass(pass)!==adminHash){err.textContent='Senha de administrador incorreta.';return;}
+    const inputHash=hashPass(pass);
+    /* DEBUG TEMPORÁRIO — remover depois */
+    console.log('Hash digitado:', inputHash);
+    console.log('Hash esperado:', CURRENT_ADMIN_HASH);
+    alert(`DEBUG:\nHash digitado: ${inputHash}\nHash esperado: ${CURRENT_ADMIN_HASH}\n\nSão iguais? ${inputHash===CURRENT_ADMIN_HASH}`);
+    /* Verifica contra hash do código */
+    let match=(inputHash===CURRENT_ADMIN_HASH||inputHash===DEFAULT_ADMIN_HASH);
+    /* Tenta também via Firestore (se disponível) */
+    if(!match){
+      try{
+        const cfgDoc=await getDoc(doc(db,'config','admin_pass'));
+        if(cfgDoc.exists()&&cfgDoc.data().value){
+          match=(inputHash===cfgDoc.data().value);
+        }
+      }catch(e){}
+    }
+    if(!match){err.textContent='Senha de administrador incorreta.';return;}
     sessionStorage.removeItem('hf_session');
     sessionStorage.setItem('hf_admin','1');
     await openAdminPanel();
