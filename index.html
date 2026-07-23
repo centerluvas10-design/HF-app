@@ -86,7 +86,7 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 .badge-gray{background:rgba(255,255,255,.06);color:var(--text3)}
 
 /* ── DASH STATS ── */
-.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
 .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:18px 20px}
 .stat-label{font-size:11px;color:var(--text3);margin-bottom:6px;letter-spacing:.06em;text-transform:uppercase}
 .stat-value{font-family:'DM Serif Display',serif;font-size:26px;color:var(--gold)}
@@ -132,7 +132,7 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 
 /* ── RESPONSIVE ── */
 @media(max-width:700px){
-  .stats-grid{grid-template-columns:1fr 1fr}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
   .face-section{grid-template-columns:1fr}
   .form-row.cols2,.form-row.cols3{grid-template-columns:1fr}
   nav .nav-btn{padding:6px 9px;font-size:12px}
@@ -432,6 +432,11 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
       <div class="stat-label">Lucro líquido</div>
       <div class="stat-value" id="stat-lucro">R$ 0</div>
       <div class="stat-sub" id="stat-lucro-sub">no período</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Ticket médio</div>
+      <div class="stat-value" id="stat-ticket">R$ 0</div>
+      <div class="stat-sub" id="stat-ticket-sub">por procedimento</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Pacientes</div>
@@ -1526,6 +1531,9 @@ function renderDash(){
   document.getElementById('stat-despesas-sub').textContent=`${filtExps.length} lançamento${filtExps.length!==1?'s':''}`;
   document.getElementById('stat-lucro').textContent=fmtBRL(lucro);
   document.getElementById('stat-lucro').className='stat-value'+(lucro<0?' negative':'');
+  const ticket=filtProcs.length>0?receita/filtProcs.length:0;
+  document.getElementById('stat-ticket').textContent=fmtBRL(ticket);
+  document.getElementById('stat-ticket-sub').textContent=filtProcs.length>0?`${filtProcs.length} proc. no período`:'sem procedimentos';
   document.getElementById('stat-pacientes').textContent=patients.length;
   document.getElementById('stat-pac-sub').textContent=`${patients.length} cadastrado${patients.length!==1?'s':''}`;
 
@@ -1560,6 +1568,7 @@ function exportXLSX(){
     ['Receita total', receita],
     ['Despesas total', despesas],
     ['Lucro líquido', receita-despesas],
+    ['Ticket médio', filtProcs.length>0?receita/filtProcs.length:0],
     ['Nº procedimentos', filtProcs.length],
     ['Nº despesas', filtExps.length],
   ];
@@ -1614,25 +1623,29 @@ function exportPDF(){
 
   /* Cards resumo */
   let y=38;
+  const ticket=filtProcs.length>0?receita/filtProcs.length:0;
   const cards=[
     {label:'Receita total',val:fmtBRL(receita),color:[16,185,129]},
     {label:'Despesas total',val:fmtBRL(despesas),color:[212,100,90]},
     {label:'Lucro líquido',val:fmtBRL(lucro),color:lucro>=0?[201,169,110]:[212,100,90]},
+    {label:'Ticket médio',val:fmtBRL(ticket),color:[106,181,168]},
   ];
   cards.forEach((c,i)=>{
-    const x=14+i*64;
+    const col=i%2,row=Math.floor(i/2);
+    const x=14+col*96;
+    const yy=y+row*22;
     doc.setFillColor(26,23,20);
-    doc.roundedRect(x,y,60,18,2,2,'F');
+    doc.roundedRect(x,yy,90,18,2,2,'F');
     doc.setTextColor(...c.color);
     doc.setFontSize(13);
     doc.setFont('helvetica','bold');
-    doc.text(c.val,x+5,y+11);
+    doc.text(c.val,x+5,yy+11);
     doc.setFontSize(7);
     doc.setFont('helvetica','normal');
     doc.setTextColor(106,96,88);
-    doc.text(c.label,x+5,y+16);
+    doc.text(c.label,x+5,yy+16);
   });
-  y+=26;
+  y+=50;
 
   /* Tabela procedimentos */
   doc.setTextColor(201,169,110);
