@@ -959,7 +959,9 @@ async function saveDoc(name,obj){const{id,...data}=obj;await setDoc(doc(db,`user
 async function deleteDocument(name,id){await deleteDoc(doc(db,`users/${currentUser.id}/${name}`,id));}
 
 /* ── Estado ── */
+/* Senha admin — alterada aqui diretamente ou pelo painel após login */
 const DEFAULT_ADMIN_HASH=hashPass('admin123');
+const CURRENT_ADMIN_HASH='4tz8u3'; /* hash de @CenterLuvas123# */
 let currentUser=null;
 let patients=[],procedures=[],expenses=[],appointments=[];
 
@@ -1026,13 +1028,13 @@ async function doLogin(){
   /* Admin */
   if(raw.toLowerCase()==='admin'){
     showLoading('Verificando...');
-    let adminHash=DEFAULT_ADMIN_HASH;
+    let adminHash=CURRENT_ADMIN_HASH;
     try{
       const cfgDoc=await getDoc(doc(db,'config','admin_pass'));
       if(cfgDoc.exists()&&cfgDoc.data().value){
         adminHash=cfgDoc.data().value;
       }
-    }catch(e){/* usa hash padrão se falhar */}
+    }catch(e){}
     hideLoading();
     if(hashPass(pass)!==adminHash){err.textContent='Senha de administrador incorreta.';return;}
     sessionStorage.removeItem('hf_session');
@@ -1125,8 +1127,9 @@ async function doChangeAdminPass(){
   const conf=document.getElementById('cap-confirm').value;
   const err=document.getElementById('cap-err');
   err.textContent='';
+  /* Verifica senha atual — usa Firestore se disponível, senão usa o hash do código */
   showLoading('Verificando...');
-  let adminHash=DEFAULT_ADMIN_HASH;
+  let adminHash=CURRENT_ADMIN_HASH;
   try{
     const cfgDoc=await getDoc(doc(db,'config','admin_pass'));
     if(cfgDoc.exists()&&cfgDoc.data().value) adminHash=cfgDoc.data().value;
@@ -1136,10 +1139,11 @@ async function doChangeAdminPass(){
   if(nw.length<6){err.textContent='Mínimo 6 caracteres.';return;}
   if(nw!==conf){err.textContent='As senhas não coincidem.';return;}
   showLoading('Salvando...');
-  await setCfg('admin_pass',hashPass(nw));
+  /* Salva no Firestore com ID correto */
+  await setDoc(doc(db,'config','admin_pass'),{value:hashPass(nw)});
   hideLoading();
   closeModal('modal-change-admin-pass');
-  alert('Senha alterada com sucesso!');
+  alert('Senha alterada com sucesso! Atualize o arquivo no GitHub para manter a nova senha como padrão.');
 }
 window.doChangeAdminPass=doChangeAdminPass;
 
