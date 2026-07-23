@@ -142,6 +142,9 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 .patient-name-link{color:var(--gold);cursor:pointer;text-decoration:none;font-weight:500}
 .patient-name-link:hover{text-decoration:underline}
 .tag{display:inline-block;background:rgba(201,169,110,.1);color:var(--gold);border-radius:4px;font-size:10px;padding:1px 6px;margin-left:6px}
+.dash-preset{background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-family:inherit;font-size:12px;padding:5px 12px;border-radius:20px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.dash-preset:hover{border-color:var(--gold);color:var(--gold)}
+.dash-preset.active{background:rgba(201,169,110,.15);border-color:var(--gold);color:var(--gold);font-weight:500}
 
 /* ── LOGIN ── */
 #login-screen{position:fixed;inset:0;background:var(--bg);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -389,21 +392,46 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 
 <!-- ══════════════ PAINEL ══════════════ -->
 <div class="page" id="page-dash">
+
+  <!-- Filtro de período + exportar -->
+  <div class="card" style="padding:14px 20px">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+      <div style="font-size:12px;color:var(--text3);font-weight:500;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Período</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;flex:1">
+        <button class="dash-preset active" id="preset-mes" onclick="setPreset('mes')">Este mês</button>
+        <button class="dash-preset" id="preset-ant" onclick="setPreset('ant')">Mês anterior</button>
+        <button class="dash-preset" id="preset-3m"  onclick="setPreset('3m')">3 meses</button>
+        <button class="dash-preset" id="preset-ano" onclick="setPreset('ano')">Este ano</button>
+        <button class="dash-preset" id="preset-custom" onclick="setPreset('custom')">Personalizado</button>
+      </div>
+      <div id="custom-range" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="date" id="dash-from" style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:12px;padding:5px 8px" onchange="renderDash()">
+        <span style="color:var(--text3);font-size:12px">até</span>
+        <input type="date" id="dash-to" style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:12px;padding:5px 8px" onchange="renderDash()">
+      </div>
+      <div style="display:flex;gap:6px;margin-left:auto">
+        <button class="btn btn-secondary btn-sm" onclick="exportXLSX()">⬇ Excel</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportPDF()">⬇ PDF</button>
+      </div>
+    </div>
+    <div id="dash-period-label" style="font-size:11px;color:var(--text3);margin-top:8px"></div>
+  </div>
+
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-label">Receita do mês</div>
+      <div class="stat-label">Receita do período</div>
       <div class="stat-value" id="stat-receita">R$ 0</div>
       <div class="stat-sub" id="stat-receita-sub">0 procedimentos</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Despesas do mês</div>
+      <div class="stat-label">Despesas do período</div>
       <div class="stat-value negative" id="stat-despesas">R$ 0</div>
       <div class="stat-sub" id="stat-despesas-sub">0 lançamentos</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Lucro líquido</div>
       <div class="stat-value" id="stat-lucro">R$ 0</div>
-      <div class="stat-sub" id="stat-lucro-sub">este mês</div>
+      <div class="stat-sub" id="stat-lucro-sub">no período</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Pacientes</div>
@@ -414,11 +442,11 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
     <div class="card">
-      <div class="card-title">Últimos procedimentos</div>
+      <div class="card-title">Procedimentos no período</div>
       <div id="dash-procs"><div class="empty-state"><div class="empty-icon">💉</div><p>Nenhum procedimento ainda.</p></div></div>
     </div>
     <div class="card">
-      <div class="card-title">Últimas despesas</div>
+      <div class="card-title">Despesas no período</div>
       <div id="dash-desp"><div class="empty-state"><div class="empty-icon">🧾</div><p>Nenhuma despesa ainda.</p></div></div>
     </div>
   </div>
@@ -921,6 +949,10 @@ tr:hover td{background:rgba(255,255,255,.02);color:var(--text)}
   </div>
 </div>
 
+
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 
 <script type="module">
 import { initializeApp }           from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -1432,27 +1464,231 @@ function renderExpStats(){
 }
 
 /* ══════════════ DASHBOARD ══════════════ */
+let dashPreset='mes';
+
+function getDashRange(){
+  const now=new Date();
+  const y=now.getFullYear(),m=now.getMonth();
+  let from,to;
+  if(dashPreset==='mes'){
+    from=`${y}-${String(m+1).padStart(2,'0')}-01`;
+    to=today();
+  } else if(dashPreset==='ant'){
+    const pm=m===0?12:m,py=m===0?y-1:y;
+    const lastDay=new Date(y,m,0).getDate();
+    from=`${py}-${String(pm).padStart(2,'0')}-01`;
+    to=`${py}-${String(pm).padStart(2,'0')}-${lastDay}`;
+  } else if(dashPreset==='3m'){
+    const d3=new Date(y,m-2,1);
+    from=`${d3.getFullYear()}-${String(d3.getMonth()+1).padStart(2,'0')}-01`;
+    to=today();
+  } else if(dashPreset==='ano'){
+    from=`${y}-01-01`;
+    to=today();
+  } else {
+    from=document.getElementById('dash-from').value||`${y}-01-01`;
+    to=document.getElementById('dash-to').value||today();
+  }
+  return{from,to};
+}
+
+function setPreset(p){
+  dashPreset=p;
+  document.querySelectorAll('.dash-preset').forEach(b=>b.classList.remove('active'));
+  document.getElementById('preset-'+p).classList.add('active');
+  const cr=document.getElementById('custom-range');
+  cr.style.display=p==='custom'?'flex':'none';
+  renderDash();
+}
+window.setPreset=setPreset;
+
+function filterByRange(arr,field){
+  const{from,to}=getDashRange();
+  return arr.filter(x=>x[field]>=from&&x[field]<=to);
+}
+
 function renderDash(){
-  const now=new Date();const mes=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const{from,to}=getDashRange();
   const patMap=Object.fromEntries(patients.map(p=>[p.id,p.name]));
-  const mesProcs=procedures.filter(p=>p.date.startsWith(mes));
-  const mesExps=expenses.filter(e=>e.date.startsWith(mes));
-  const receita=mesProcs.reduce((s,p)=>s+p.value,0);
-  const despesas=mesExps.reduce((s,e)=>s+e.total,0);
+  const filtProcs=filterByRange(procedures,'date');
+  const filtExps=filterByRange(expenses,'date');
+  const receita=filtProcs.reduce((s,p)=>s+p.value,0);
+  const despesas=filtExps.reduce((s,e)=>s+e.total,0);
   const lucro=receita-despesas;
+
+  /* Label do período */
+  document.getElementById('dash-period-label').textContent=
+    `${fmtDate(from)} → ${fmtDate(to)} · ${filtProcs.length} procedimento${filtProcs.length!==1?'s':''} · ${filtExps.length} despesa${filtExps.length!==1?'s':''}`;
+
   document.getElementById('stat-receita').textContent=fmtBRL(receita);
-  document.getElementById('stat-receita-sub').textContent=`${mesProcs.length} procedimento${mesProcs.length!==1?'s':''}`;
+  document.getElementById('stat-receita-sub').textContent=`${filtProcs.length} procedimento${filtProcs.length!==1?'s':''}`;
   document.getElementById('stat-despesas').textContent=fmtBRL(despesas);
-  document.getElementById('stat-despesas-sub').textContent=`${mesExps.length} lançamento${mesExps.length!==1?'s':''}`;
+  document.getElementById('stat-despesas-sub').textContent=`${filtExps.length} lançamento${filtExps.length!==1?'s':''}`;
   document.getElementById('stat-lucro').textContent=fmtBRL(lucro);
   document.getElementById('stat-lucro').className='stat-value'+(lucro<0?' negative':'');
   document.getElementById('stat-pacientes').textContent=patients.length;
   document.getElementById('stat-pac-sub').textContent=`${patients.length} cadastrado${patients.length!==1?'s':''}`;
-  const lastProcs=procedures.sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
-  document.getElementById('dash-procs').innerHTML=lastProcs.length?lastProcs.map(p=>`<div class="hist-item"><div class="hist-header"><span class="hist-title">${p.proc}</span><span class="badge badge-gold">${fmtBRL(p.value)}</span></div><div class="hist-meta">${patMap[p.patientId]||'—'} · ${fmtDate(p.date)} · ${REGION_NAMES[p.region]}</div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">💉</div><p>Nenhum procedimento ainda.</p></div>';
-  const lastExps=expenses.sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
-  document.getElementById('dash-desp').innerHTML=lastExps.length?lastExps.map(e=>`<div class="hist-item"><div class="hist-header"><span class="hist-title">${e.desc}</span><span class="badge badge-rose">${fmtBRL(e.total)}</span></div><div class="hist-meta">${e.cat} · ${fmtDate(e.date)}${e.supplier?' · '+e.supplier:''}</div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">🧾</div><p>Nenhuma despesa ainda.</p></div>';
+
+  const sortedProcs=filtProcs.sort((a,b)=>b.date.localeCompare(a.date));
+  document.getElementById('dash-procs').innerHTML=sortedProcs.length
+    ?sortedProcs.map(p=>`<div class="hist-item"><div class="hist-header"><span class="hist-title">${p.proc}</span><span class="badge badge-gold">${fmtBRL(p.value)}</span></div><div class="hist-meta">${patMap[p.patientId]||'—'} · ${fmtDate(p.date)} · ${REGION_NAMES[p.region]}</div></div>`).join('')
+    :'<div class="empty-state"><div class="empty-icon">💉</div><p>Nenhum procedimento no período.</p></div>';
+
+  const sortedExps=filtExps.sort((a,b)=>b.date.localeCompare(a.date));
+  document.getElementById('dash-desp').innerHTML=sortedExps.length
+    ?sortedExps.map(e=>`<div class="hist-item"><div class="hist-header"><span class="hist-title">${e.desc}</span><span class="badge badge-rose">${fmtBRL(e.total)}</span></div><div class="hist-meta">${e.cat} · ${fmtDate(e.date)}${e.supplier?' · '+e.supplier:''}</div></div>`).join('')
+    :'<div class="empty-state"><div class="empty-icon">🧾</div><p>Nenhuma despesa no período.</p></div>';
 }
+
+/* ══════════════ EXPORTAR XLSX ══════════════ */
+function exportXLSX(){
+  const{from,to}=getDashRange();
+  const patMap=Object.fromEntries(patients.map(p=>[p.id,p.name]));
+  const filtProcs=filterByRange(procedures,'date');
+  const filtExps=filterByRange(expenses,'date');
+  const receita=filtProcs.reduce((s,p)=>s+p.value,0);
+  const despesas=filtExps.reduce((s,e)=>s+e.total,0);
+
+  const wb=XLSX.utils.book_new();
+
+  /* Aba Resumo */
+  const resumo=[
+    ['RELATÓRIO HARMONIA ESTÉTICA'],
+    [`Período: ${fmtDate(from)} a ${fmtDate(to)}`],
+    ['Profissional:', currentUser.name],
+    [],
+    ['Receita total', receita],
+    ['Despesas total', despesas],
+    ['Lucro líquido', receita-despesas],
+    ['Nº procedimentos', filtProcs.length],
+    ['Nº despesas', filtExps.length],
+  ];
+  const wsR=XLSX.utils.aoa_to_sheet(resumo);
+  XLSX.utils.book_append_sheet(wb,wsR,'Resumo');
+
+  /* Aba Procedimentos */
+  const procRows=[['Data','Paciente','Região','Lado','Procedimento','Produto','Qtd','Valor (R$)','Pagamento']];
+  filtProcs.sort((a,b)=>b.date.localeCompare(a.date)).forEach(p=>{
+    procRows.push([fmtDate(p.date),patMap[p.patientId]||'—',REGION_NAMES[p.region]||p.region,p.side||'',p.proc,p.product||'',p.qty||'',p.value,p.pay||'']);
+  });
+  const wsP=XLSX.utils.aoa_to_sheet(procRows);
+  XLSX.utils.book_append_sheet(wb,wsP,'Procedimentos');
+
+  /* Aba Despesas */
+  const expRows=[['Data','Descrição','Categoria','Fornecedor','NF','Qtd','Valor unit. (R$)','Total (R$)']];
+  filtExps.sort((a,b)=>b.date.localeCompare(a.date)).forEach(e=>{
+    expRows.push([fmtDate(e.date),e.desc,e.cat,e.supplier||'',e.nf||'',e.qty,e.unit,e.total]);
+  });
+  const wsE=XLSX.utils.aoa_to_sheet(expRows);
+  XLSX.utils.book_append_sheet(wb,wsE,'Despesas');
+
+  XLSX.writeFile(wb,`Harmonia_${from}_${to}.xlsx`);
+}
+window.exportXLSX=exportXLSX;
+
+/* ══════════════ EXPORTAR PDF ══════════════ */
+function exportPDF(){
+  const{from,to}=getDashRange();
+  const patMap=Object.fromEntries(patients.map(p=>[p.id,p.name]));
+  const filtProcs=filterByRange(procedures,'date');
+  const filtExps=filterByRange(expenses,'date');
+  const receita=filtProcs.reduce((s,p)=>s+p.value,0);
+  const despesas=filtExps.reduce((s,e)=>s+e.total,0);
+  const lucro=receita-despesas;
+
+  const{jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+
+  /* Cabeçalho */
+  doc.setFillColor(15,13,11);
+  doc.rect(0,0,210,30,'F');
+  doc.setTextColor(201,169,110);
+  doc.setFontSize(18);
+  doc.setFont('helvetica','bold');
+  doc.text('Harmonia Estética',14,13);
+  doc.setFontSize(9);
+  doc.setFont('helvetica','normal');
+  doc.setTextColor(160,152,136);
+  doc.text(`Relatório de ${fmtDate(from)} a ${fmtDate(to)}`,14,20);
+  doc.text(`Profissional: ${currentUser.name}`,14,26);
+
+  /* Cards resumo */
+  let y=38;
+  const cards=[
+    {label:'Receita total',val:fmtBRL(receita),color:[16,185,129]},
+    {label:'Despesas total',val:fmtBRL(despesas),color:[212,100,90]},
+    {label:'Lucro líquido',val:fmtBRL(lucro),color:lucro>=0?[201,169,110]:[212,100,90]},
+  ];
+  cards.forEach((c,i)=>{
+    const x=14+i*64;
+    doc.setFillColor(26,23,20);
+    doc.roundedRect(x,y,60,18,2,2,'F');
+    doc.setTextColor(...c.color);
+    doc.setFontSize(13);
+    doc.setFont('helvetica','bold');
+    doc.text(c.val,x+5,y+11);
+    doc.setFontSize(7);
+    doc.setFont('helvetica','normal');
+    doc.setTextColor(106,96,88);
+    doc.text(c.label,x+5,y+16);
+  });
+  y+=26;
+
+  /* Tabela procedimentos */
+  doc.setTextColor(201,169,110);
+  doc.setFontSize(11);
+  doc.setFont('helvetica','bold');
+  doc.text('Procedimentos',14,y);
+  y+=4;
+
+  doc.autoTable({
+    startY:y,
+    head:[['Data','Paciente','Região','Procedimento','Valor']],
+    body:filtProcs.sort((a,b)=>b.date.localeCompare(a.date)).map(p=>[
+      fmtDate(p.date),patMap[p.patientId]||'—',REGION_NAMES[p.region]||String(p.region),p.proc,fmtBRL(p.value)
+    ]),
+    styles:{fontSize:8,cellPadding:2,textColor:[224,224,224],fillColor:[26,23,20],lineColor:[42,38,32],lineWidth:0.1},
+    headStyles:{fillColor:[42,38,32],textColor:[160,152,136],fontStyle:'bold'},
+    alternateRowStyles:{fillColor:[36,32,24]},
+    margin:{left:14,right:14},
+    didParseCell:data=>{if(data.column.index===4){data.cell.styles.textColor=[201,169,110];}},
+  });
+  y=doc.lastAutoTable.finalY+8;
+
+  /* Tabela despesas */
+  if(y>250){doc.addPage();y=14;}
+  doc.setTextColor(212,100,90);
+  doc.setFontSize(11);
+  doc.setFont('helvetica','bold');
+  doc.text('Despesas',14,y);
+  y+=4;
+
+  doc.autoTable({
+    startY:y,
+    head:[['Data','Descrição','Categoria','Total']],
+    body:filtExps.sort((a,b)=>b.date.localeCompare(a.date)).map(e=>[
+      fmtDate(e.date),e.desc,e.cat,fmtBRL(e.total)
+    ]),
+    styles:{fontSize:8,cellPadding:2,textColor:[224,224,224],fillColor:[26,23,20],lineColor:[42,38,32],lineWidth:0.1},
+    headStyles:{fillColor:[42,38,32],textColor:[160,152,136],fontStyle:'bold'},
+    alternateRowStyles:{fillColor:[36,32,24]},
+    margin:{left:14,right:14},
+    didParseCell:data=>{if(data.column.index===3){data.cell.styles.textColor=[212,100,90];}},
+  });
+
+  /* Rodapé */
+  const pages=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pages;i++){
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(80,72,64);
+    doc.text(`Harmonia Estética · Gerado em ${new Date().toLocaleDateString('pt-BR')}`,14,290);
+    doc.text(`Página ${i} de ${pages}`,196,290,{align:'right'});
+  }
+
+  doc.save(`Harmonia_${from}_${to}.pdf`);
+}
+window.exportPDF=exportPDF;
 
 /* ══════════════ AGENDA ══════════════ */
 const MONTHS=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
