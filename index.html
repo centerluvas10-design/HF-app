@@ -1026,7 +1026,13 @@ async function doLogin(){
   /* Admin */
   if(raw.toLowerCase()==='admin'){
     showLoading('Verificando...');
-    const adminHash=await getCfg('admin_pass')||DEFAULT_ADMIN_HASH;
+    let adminHash=DEFAULT_ADMIN_HASH;
+    try{
+      const cfgDoc=await getDoc(doc(db,'config','admin_pass'));
+      if(cfgDoc.exists()&&cfgDoc.data().value){
+        adminHash=cfgDoc.data().value;
+      }
+    }catch(e){/* usa hash padrão se falhar */}
     hideLoading();
     if(hashPass(pass)!==adminHash){err.textContent='Senha de administrador incorreta.';return;}
     sessionStorage.removeItem('hf_session');
@@ -1120,7 +1126,11 @@ async function doChangeAdminPass(){
   const err=document.getElementById('cap-err');
   err.textContent='';
   showLoading('Verificando...');
-  const adminHash=await getCfg('admin_pass')||DEFAULT_ADMIN_HASH;
+  let adminHash=DEFAULT_ADMIN_HASH;
+  try{
+    const cfgDoc=await getDoc(doc(db,'config','admin_pass'));
+    if(cfgDoc.exists()&&cfgDoc.data().value) adminHash=cfgDoc.data().value;
+  }catch(e){}
   hideLoading();
   if(hashPass(cur)!==adminHash){err.textContent='Senha atual incorreta.';return;}
   if(nw.length<6){err.textContent='Mínimo 6 caracteres.';return;}
